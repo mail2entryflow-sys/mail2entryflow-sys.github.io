@@ -223,7 +223,7 @@ async function pdfToCanvas(f) {
 }
 
 // ------------------------------------------------------------------ 2. crop, turn, clean the background
-const crop = { src: null, rect: null, k: 1, ox: 0, oy: 0, thr: 200, clear: true, colour: "red", drag: null };
+const crop = { src: null, rect: null, k: 1, ox: 0, oy: 0, thr: 25, clear: true, colour: "red", drag: null };
 const COLOURS = { original: null, red: [229, 57, 53], yellow: [255, 235, 59], white: [255, 255, 255], blue: [30, 136, 229] };
 function openCrop(canvas) {
   crop.src = canvas; crop.rect = [0, 0, canvas.width, canvas.height];
@@ -236,12 +236,32 @@ function rotateCrop(dir) {
   const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate(dir * Math.PI / 2); g.drawImage(s, -s.width / 2, -s.height / 2);
   crop.src = c; crop.rect = [0, 0, c.width, c.height]; drawCrop();
 }
-function clean(data) {                               // white → transparent, lines → chosen colour
-  const d = data.data, col = COLOURS[crop.colour];
-  for (let i = 0; i < d.length; i += 4) {
-    const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    if (crop.clear && lum > crop.thr) { d[i + 3] = 0; continue; }
-    if (col) { d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = 255; }
+function clean(data) {
+  // Paper → transparent, lines → chosen colour. A pixel counts as a line only when it is clearly darker
+  // than the paper around it (local average), so grey scans, yellowed paper and uneven light in a
+  // phone photo all work. crop.thr = how much darker (higher removes more).
+  const d = data.data, W = data.width, H = data.height, col = COLOURS[crop.colour], n = W * H;
+  const lum = new Float32Array(n);
+  for (let i = 0; i < n; i++) lum[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  let ink = null;
+  if (crop.clear) {
+    const S = new Float64Array((W + 1) * (H + 1));     // integral image for fast local averages
+    for (let y = 0; y < H; y++) { let row = 0; for (let x = 0; x < W; x++) { row += lum[y * W + x]; S[(y + 1) * (W + 1) + x + 1] = S[y * (W + 1) + x + 1] + row; } }
+    const r = Math.max(6, Math.round(Math.min(W, H) / 45));
+    ink = new Uint8Array(n);
+    for (let y = 0; y < H; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(H, y + r + 1);
+      for (let x = 0; x < W; x++) {
+        const x0 = Math.max(0, x - r), x1 = Math.min(W, x + r + 1);
+        const mean = (S[y1 * (W + 1) + x1] - S[y0 * (W + 1) + x1] - S[y1 * (W + 1) + x0] + S[y0 * (W + 1) + x0]) / ((x1 - x0) * (y1 - y0));
+        ink[y * W + x] = lum[y * W + x] < mean - crop.thr ? 1 : 0;
+      }
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    if (ink && !ink[i]) { d[o + 3] = 0; continue; }
+    if (col) { d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 255; }
   }
   return data;
 }

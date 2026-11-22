@@ -195,7 +195,7 @@
     <div class="r"><button class="btn light" id="cropRotL">⟲ Turn</button><button class="btn light" id="cropRotR">⟳ Turn</button>
       <button class="btn light" id="cropAll">Whole page</button></div>
     <div class="r"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="cropClear" checked style="accent-color:#558B2F;width:17px;height:17px"> Remove white paper</label>
-      <input type="range" id="cropThr" min="120" max="245" value="200" title="How much of the paper to remove"></div>
+      <input type="range" id="cropThr" min="5" max="80" value="25" title="Move right to remove more (faint marks, shadows)"></div>
     <div class="r"><span class="muted">Line colour</span><span class="chips" id="cropCol">
       <button class="chip" data-c="original">Original</button><button class="chip on" data-c="red">Red</button>
       <button class="chip" data-c="yellow">Yellow</button><button class="chip" data-c="white">White</button><button class="chip" data-c="blue">Blue</button></span></div>
@@ -579,6 +579,6 @@ drawPlots();
 startWatch(true);
 if (!store.get("seenHelp", false)) { $("pHelp").classList.add("show"); store.set("seenHelp", true); }
 </script>
-<script src="fmb.js?v=4"></script>
+<script src="fmb.js?v=5"></script>
 </body>
 </html>
