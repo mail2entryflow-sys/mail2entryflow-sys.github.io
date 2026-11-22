@@ -109,14 +109,19 @@ function outlineM(rec) {                             // outline vertices in metr
   polys.forEach((p) => p.forEach((ring) => ring.forEach((c) => out.push(g.toM(L.latLng(c[1], c[0]))))));
   return out;
 }
-function placeInitial(rec) {                         // fit the cropped sketch inside the outline, turned by rec.theta
-  const pts = outlineM(rec);
+function bbox(pts) {
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const t = rec.theta * Math.PI / 180, c = Math.abs(Math.cos(t)), s = Math.abs(Math.sin(t));
-  const bw = rec.w * c + rec.h * s, bh = rec.w * s + rec.h * c;   // size of the turned sketch
-  const k = Math.min((Math.max(...xs) - Math.min(...xs)) / bw, (Math.max(...ys) - Math.min(...ys)) / bh) || 1;
-  return M3.mul(M3.T(cx, cy), M3.mul(M3.R(-t), M3.mul(M3.S(k), M3.mul(M3.FLIP, M3.T(-rec.w / 2, -rec.h / 2)))));
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0 || 1, h: y1 - y0 || 1 };
+}
+function placeInitial(rec) {                         // lay the drawn lines over the outline, turned by rec.theta
+  const o = bbox(outlineM(rec)), t = rec.theta * Math.PI / 180;
+  const turn = M3.mul(M3.R(-t), M3.mul(M3.FLIP, M3.T(-rec.w / 2, -rec.h / 2)));
+  const ink = [];                                    // the sketch's line pixels (or its corners when there are none)
+  if (rec.ink && rec.ink.length) for (let i = 0; i < rec.ink.length; i += 2) ink.push(M3.app(turn, [rec.ink[i], rec.ink[i + 1]]));
+  else [[0, 0], [rec.w, 0], [rec.w, rec.h], [0, rec.h]].forEach((p) => ink.push(M3.app(turn, p)));
+  const b = bbox(ink), k = Math.sqrt((o.w / b.w) * (o.h / b.h)) || 1;
+  return M3.mul(M3.T(o.cx, o.cy), M3.mul(M3.S(k), M3.mul(M3.T(-b.cx, -b.cy), turn)));
 }
 function refit(rec) {                                // rec.H from the matched corner pairs
   const n = rec.pairs.length, base = placeInitial(rec);
@@ -290,10 +295,14 @@ $("cropOk").onclick = async () => {
   const g = c.getContext("2d"); g.drawImage(crop.src, x, y, w, h, 0, 0, c.width, c.height);
   g.putImageData(clean(g.getImageData(0, 0, c.width, c.height)), 0, 0);
   const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
+  const px = g.getImageData(0, 0, c.width, c.height).data, ink = [];  // sample of line pixels, for the first placing
+  let total = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) total++;
+  const step = Math.max(1, Math.ceil(total / 3000));
+  for (let i = 3, n = 0; i < px.length; i += 4) if (px[i] > 0 && n++ % step === 0) { const q = (i - 3) / 4; ink.push(q % c.width, Math.floor(q / c.width)); }
   $("crop").classList.remove("show"); crop.src = null;
   const c0 = L.geoJSON(skCtx.geom).getBounds().getCenter();
   const rec = { key: skCtx.key, sy: skCtx.sy, village: skCtx.village, geom: skCtx.geom, origin: { lat: c0.lat, lng: c0.lng },
-    w: c.width, h: c.height, theta: 0, pairs: [], opacity: 0.85, blob, t: Date.now() };
+    w: c.width, h: c.height, theta: 0, pairs: [], opacity: 0.85, blob, ink, t: Date.now() };
   refit(rec);
   showSketch(rec);
   editSketch(rec, true);
