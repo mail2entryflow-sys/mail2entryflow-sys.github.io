@@ -294,6 +294,11 @@ $("cropOk").onclick = async () => {
   c.width = Math.round(w * k); c.height = Math.round(h * k);
   const g = c.getContext("2d"); g.drawImage(crop.src, x, y, w, h, 0, 0, c.width, c.height);
   g.putImageData(clean(g.getImageData(0, 0, c.width, c.height)), 0, 0);
+  if (crop.clear) {                                  // thicken the lines so they stay visible when the sketch is shrunk onto the map
+    const rad = Math.max(1, Math.round(Math.max(c.width, c.height) / 600)), t = document.createElement("canvas");
+    t.width = c.width; t.height = c.height; t.getContext("2d").drawImage(c, 0, 0);
+    for (let dx = -rad; dx <= rad; dx++) for (let dy = -rad; dy <= rad; dy++) if (dx * dx + dy * dy <= rad * rad) g.drawImage(t, dx, dy);
+  }
   const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
   const px = g.getImageData(0, 0, c.width, c.height).data, ink = [];  // sample of line pixels, for the first placing
   let total = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) total++;
