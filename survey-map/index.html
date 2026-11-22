@@ -70,6 +70,11 @@
   #measureBar { position:absolute; left:50%; transform:translateX(-50%); top:60px; z-index:1001; background:#fff; border-radius:20px;
     box-shadow:0 2px 10px rgba(0,0,0,.25); padding:6px 8px 6px 14px; display:none; align-items:center; gap:8px; font-size:13.5px; white-space:nowrap; }
   #measureBar.show { display:flex; }
+  #here { position:absolute; top:62px; left:10px; right:66px; z-index:1000; background:rgba(255,255,255,.95); border-radius:18px;
+    box-shadow:0 2px 8px rgba(0,0,0,.22); padding:7px 12px; font-size:13.5px; display:none; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #here.show { display:block; }
+  #here b { color:var(--dark); }
+  @media (min-width: 700px) { #here { right:auto; max-width:420px; } }
   #toast { position:absolute; left:50%; bottom:90px; transform:translateX(-50%); z-index:1003; background:rgba(28,42,22,.92); color:#fff;
     padding:8px 14px; border-radius:18px; font-size:13px; display:none; max-width:90vw; text-align:center; }
   .me { width:18px; height:18px; border-radius:50%; background:var(--blue); border:3px solid #fff; box-shadow:0 0 0 2px rgba(30,136,229,.35), 0 1px 4px rgba(0,0,0,.4); }
@@ -101,11 +106,12 @@
   <button id="bHelp" title="Help">❓</button>
 </div>
 <div class="fab" id="toolsBottom">
-  <button id="locate" title="My location – tap again to follow">
+  <button id="locate" title="My location – show where I am">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
   </button>
 </div>
 
+<div id="here"><span id="hereText"></span></div>
 <div class="sheet" id="sheet"><button class="x" id="sheetX">×</button><div id="sheetBody"></div></div>
 
 <div class="panel" id="pLayers">
@@ -142,7 +148,7 @@
 <div class="panel" id="pHelp">
   <h3>How to use / എങ്ങനെ ഉപയോഗിക്കാം</h3>
   <div style="font-size:13.5px">
-  <p><b>◎ My location</b> – shows where you are and the survey number you are standing in. Tap again to follow you as you walk (blue).<br>
+  <p><b>◎ My location</b> – shows where you are and the survey number you are standing in. The strip at the top keeps showing your survey number as you walk.<br>
   <span class="muted">എന്റെ സ്ഥാനം: നിങ്ങൾ നിൽക്കുന്ന സർവ്വേ നമ്പർ കാണിക്കും.</span></p>
   <p><b>Tap the map</b> – survey number, village, block, district and the approximate area of the whole survey number, outlined in yellow.<br>
   <span class="muted">മാപ്പിൽ തൊടുക: സർവ്വേ നമ്പർ, വില്ലേജ്, വിസ്തീർണ്ണം.</span></p>
@@ -308,43 +314,59 @@ map.on("click", (e) => {
   showPlace(e.latlng, "Tapped place");
 });
 
-// ------------------------------------------------------------------ my location (and follow)
-let me = null, acc = null, watchId = null, follow = false, lastQuery = null, lastQueryAt = 0, firstFix = true;
-function locate() {
+// ------------------------------------------------------------------ my location
+// The "You are here" window is shown once when the map opens (and when ◎ is tapped).
+// After that the blue dot and the small strip at the top update quietly – no repeated pop-ups.
+let me = null, acc = null, watchId = null, pos = null, posAcc = 0, wantCard = false, lastQ = null, lastQAt = 0, quietBusy = false;
+function startWatch(showCard) {
   if (!navigator.geolocation) { toast("Location is not available in this browser"); return; }
-  if (watchId !== null) {               // second tap: follow on/off
-    follow = !follow;
-    $("locate").classList.toggle("follow", follow);
-    toast(follow ? "Following you as you walk" : "Stopped following");
-    if (follow && me) map.setView(me.getLatLng(), Math.max(map.getZoom(), 18));
-    return;
-  }
-  toast("Finding your location…", 4000);
-  firstFix = true;
+  wantCard = showCard;
+  if (watchId !== null) return;
+  if (showCard) toast("Finding your location…", 4000);
   watchId = navigator.geolocation.watchPosition(onPos, (err) => {
     navigator.geolocation.clearWatch(watchId); watchId = null;
-    toast(err.code === 1 ? "Location permission is off. Allow location for this site in the browser." : "Could not get your location. Turn on GPS / Location.", 5000);
-  }, { enableHighAccuracy: true, maximumAge: 3000, timeout: 30000 });
+    if (wantCard) toast(err.code === 1 ? "Location permission is off. Allow location for this site in Chrome." : "Could not get your location. Turn on GPS / Location.", 5000);
+    wantCard = false;
+  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+}
+function locate() {                       // ◎ button: go to me and show where I am
+  if (pos) { map.setView(pos, Math.max(map.getZoom(), 18)); showHere(pos, posAcc); }
+  else startWatch(true);
 }
 function onPos(p) {
   const ll = L.latLng(p.coords.latitude, p.coords.longitude), a = p.coords.accuracy;
+  pos = ll; posAcc = a;
   if (!me) {
     me = L.marker(ll, { icon: L.divIcon({ className: "", html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 1000 }).addTo(map);
+    me.on("click", (e) => { L.DomEvent.stop(e); showHere(pos, posAcc); });
     acc = L.circle(ll, { radius: a, color: "#1E88E5", weight: 1, fillOpacity: .1, interactive: false }).addTo(map);
   } else { me.setLatLng(ll); acc.setLatLng(ll).setRadius(a); }
-  if (firstFix) { firstFix = false; map.setView(ll, Math.max(map.getZoom(), 18)); }
-  else if (follow) map.panTo(ll);
-  // look up again when moved more than 8 m or after 15 s
-  if (!lastQuery || map.distance(lastQuery, ll) > 8 || Date.now() - lastQueryAt > 15000) {
-    if (lastQuery && $("sheet").classList.contains("show") && lastFound && lastFound.title !== "You are here") { lastQuery = ll; lastQueryAt = Date.now(); return; }
-    lastQuery = ll; lastQueryAt = Date.now();
-    showPlace(ll, "You are here", !firstFix && lastFound && lastFound.title === "You are here").then(() => {
-      const w = $("sheetBody").querySelector(".kv");
-      if (w) w.insertAdjacentHTML("beforeend", `<b>GPS accuracy</b><span>± ${Math.round(a)} m${a > 25 ? " – move to open sky" : ""}</span>`);
-    });
+  if (wantCard) { wantCard = false; map.setView(ll, Math.max(map.getZoom(), 18)); showHere(ll, a); return; }
+  if (!lastQ || map.distance(lastQ, ll) > 10 || Date.now() - lastQAt > 30000) quietHere(ll, a);
+}
+function accText(a) { return "± " + Math.round(a) + " m" + (a > 25 ? " – move to open sky" : ""); }
+async function showHere(ll, a) {           // the full window
+  lastQ = ll; lastQAt = Date.now();
+  await showPlace(ll, "You are here");
+  if (lastFound && lastFound.ll === ll) {
+    setStrip(lastFound.r, a);
+    const w = $("sheetBody").querySelector(".kv");
+    if (w) w.insertAdjacentHTML("beforeend", `<b>GPS accuracy</b><span>${accText(a)}</span>`);
   }
 }
+async function quietHere(ll, a) {          // only the strip at the top
+  if (quietBusy) return;
+  quietBusy = true; lastQ = ll; lastQAt = Date.now();
+  try { setStrip(await lookup(ll), a); } catch (e) { } finally { quietBusy = false; }
+}
+function setStrip(r, a) {
+  const sy = r.plot ? r.plot.properties.par_num : null, v = r.vill ? r.vill.vname : "";
+  $("hereText").innerHTML = (sy ? "You are in <b>Survey No. " + esc(sy) + "</b>" : "No survey number here") +
+    (v ? " · " + esc(v) : "") + ` <span class="muted">± ${Math.round(a)} m</span>`;
+  $("here").classList.add("show");
+}
 $("locate").onclick = locate;
+$("here").onclick = () => { if (pos) { map.setView(pos, Math.max(map.getZoom(), 18)); showHere(pos, posAcc); } };
 
 // ------------------------------------------------------------------ saved plots
 let plots = store.get("plots", []);
@@ -502,6 +524,7 @@ function closePanels() { Object.values(panels).forEach((p) => $(p).classList.rem
 Object.entries(panels).forEach(([b, p]) => $(b).onclick = () => { const open = $(p).classList.contains("show"); closePanels(); if (!open) $(p).classList.add("show"); if (measuring) stopMeasure(); });
 map.on("movestart", () => { if (!measuring) closePanels(); });
 drawPlots();
+startWatch(true);
 if (!store.get("seenHelp", false)) { $("pHelp").classList.add("show"); store.set("seenHelp", true); }
 </script>
 </body>
