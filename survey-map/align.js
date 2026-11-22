@@ -234,7 +234,7 @@ function listCorr() {
   const ks = Object.keys(all).sort();
   box.innerHTML = ks.length ? ks.map((k) => {
     const r = all[k], mine = !!corr.local[k];
-    return `<div class="plot"><div class="t" data-cshow="${esc(k)}" style="cursor:pointer"><b>${esc(r.vname)}</b> · ${esc(r.dtname || "")}<br><span class="muted">${mine ? "Yours" : "EntryFlow"} · ${r.pairs.length} corners · moved ${shiftText(r)} · turned ${angleText(r)}</span></div>
+    return `<div class="plot"><div class="t" data-cshow="${esc(k)}" style="cursor:pointer"><b>${esc(r.vname)}</b> · ${esc(r.dtname || "")}<br><span class="muted">${mine ? "Yours" : "EntryFlow"} · ${r.pairs.length} corner${r.pairs.length === 1 ? "" : "s"} · moved ${shiftText(r)} · turned ${angleText(r)}</span></div>
       <br><span class="muted" style="color:#558B2F">Tap to show its corners on the map</span></div>
       ${mine ? `<button class="btn red" data-cdel="${esc(k)}">✕</button>` : ""}</div>`;
   }).join("") : '<div class="muted">No corrections yet.</div>';
