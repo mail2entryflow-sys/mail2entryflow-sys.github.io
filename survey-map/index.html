@@ -144,7 +144,7 @@
   <div style="font-size:13.5px">
   <p><b>◎ My location</b> – shows where you are and the survey number you are standing in. Tap again to follow you as you walk (blue).<br>
   <span class="muted">എന്റെ സ്ഥാനം: നിങ്ങൾ നിൽക്കുന്ന സർവ്വേ നമ്പർ കാണിക്കും.</span></p>
-  <p><b>Tap the map</b> – survey number, village, block, district and the plot's approximate area. The plot is outlined in yellow.<br>
+  <p><b>Tap the map</b> – survey number, village, block, district and the approximate area of the whole survey number, outlined in yellow.<br>
   <span class="muted">മാപ്പിൽ തൊടുക: സർവ്വേ നമ്പർ, വില്ലേജ്, വിസ്തീർണ്ണം.</span></p>
   <p><b>⭐ Save plot</b> – keep your cluster's plots on this phone, with a note. They stay on the map in green.</p>
   <p><b>📏 Measure</b> – tap points to measure a distance; three or more points also give the area (cents).</p>
@@ -258,11 +258,11 @@ function placeHtml(r, ll, title) {
     ${v.gp_name ? `<b>Panchayat</b><span>${esc(v.gp_name)}</span>` : ""}
     <b>Block</b><span>${esc(v.bpname || "–")}</span>
     <b>District</b><span>${esc(v.dtname || "–")}</span>
-    ${sy ? `<b>Plot area</b><span>≈ ${areaText(m2)}</span>` : ""}
+    ${sy ? `<b>Survey No. area</b><span>≈ ${areaText(m2)}</span>` : ""}
     <b>Position</b><span>${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}</span>
     ${me && title !== "You are here" ? `<b>From you</b><span>${distText(map.distance(me.getLatLng(), ll))}</span>` : ""}
   </div>`;
-  if (sy) h += `<div class="muted" style="margin-top:6px">Area is calculated from the Bhuvan map outline – a guide only.</div>`;
+  if (sy) h += `<div class="muted" style="margin-top:6px">Area of the whole survey number (all sub-divisions), from the Bhuvan outline – a guide only.</div>`;
   h += `<div class="row">
     ${sy ? `<button class="btn" data-act="save">⭐ Save plot</button>` : ""}
     <a class="btn light" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${ll.lat},${ll.lng}">🧭 Directions</a>
