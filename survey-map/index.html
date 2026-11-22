@@ -94,6 +94,15 @@
   #skBar .btn:disabled { opacity:.45; }
   #skHint { margin-top:6px; background:var(--soft); border-radius:8px; padding:6px 8px; }
   @media (min-width: 700px) { #skBar { right:auto; width:420px; } }
+  #alBar { position:absolute; left:8px; right:8px; bottom:10px; z-index:1001; background:#fff; border-radius:14px; box-shadow:0 4px 18px rgba(0,0,0,.3);
+    padding:10px 12px; display:none; font-size:13.5px; }
+  #alBar.show { display:block; }
+  #alBar .hd { display:flex; align-items:center; gap:8px; font-weight:700; color:var(--dark); }
+  #alBar .btn:disabled { opacity:.45; }
+  #alHint { margin-top:6px; background:var(--soft); border-radius:8px; padding:6px 8px; }
+  #corrNote { position:absolute; left:10px; bottom:96px; z-index:999; background:rgba(255,255,255,.92); border-radius:14px; padding:4px 10px;
+    font-size:12px; color:var(--dark); box-shadow:0 1px 4px rgba(0,0,0,.2); display:none; }
+  @media (min-width: 700px) { #alBar { right:auto; width:420px; } }
   #toast { position:absolute; left:50%; bottom:90px; transform:translateX(-50%); z-index:1003; background:rgba(28,42,22,.92); color:#fff;
     padding:8px 14px; border-radius:18px; font-size:13px; display:none; max-width:90vw; text-align:center; }
   .me { width:18px; height:18px; border-radius:50%; background:var(--blue); border:3px solid #fff; box-shadow:0 0 0 2px rgba(30,136,229,.35), 0 1px 4px rgba(0,0,0,.4); }
@@ -138,6 +147,8 @@
   <label><input type="radio" name="base" value="sat" checked> Satellite + roads</label>
   <label><input type="radio" name="base" value="satonly"> Satellite only</label>
   <label><input type="radio" name="base" value="osm"> Street map</label>
+  <div class="muted" style="margin-top:6px">Compare older satellite pictures (they differ slightly in position):</div>
+  <div id="wbList"></div>
   <h3 style="margin-top:10px">Layers</h3>
   <label><input type="checkbox" id="lSurvey" checked> Survey numbers (Bhuvan)</label>
   <div class="muted" style="margin:-2px 0 2px 25px">Opacity</div>
@@ -146,6 +157,13 @@
   <label><input type="checkbox" id="lPlots" checked> My saved plots</label>
   <label><input type="checkbox" id="lUpload" checked> Loaded KML / GeoJSON</label>
   <label><input type="checkbox" id="lSketch" checked> FMB sketches</label>
+  <h3 style="margin-top:12px">Survey line corrections</h3>
+  <div class="muted">Bhuvan's survey lines are often shifted from the real ground. Match 2–3 corners to correct a whole village.</div>
+  <label><input type="checkbox" id="useCorr" checked> Use corrections</label>
+  <div class="row" style="margin-top:2px"><button class="btn" id="alStart">📐 Align survey lines here</button></div>
+  <div id="corrList" style="margin-top:6px"></div>
+  <div class="row"><button class="btn light" id="corrShare">📤 Share my corrections</button><button class="btn light" id="corrImport">⬆ Add a corrections file</button></div>
+  <input type="file" id="corrFile" accept=".json,application/json" hidden>
   <div class="muted" style="margin-top:8px">Survey and village layers: Bhuvan Panchayat (NRSC, ISRO). Survey numbers are a guide; village records are final.</div>
 </div>
 
@@ -174,6 +192,7 @@
   <p><b>Tap the map</b> – survey number, village, block, district and the approximate area of the whole survey number, outlined in yellow.<br>
   <span class="muted">മാപ്പിൽ തൊടുക: സർവ്വേ നമ്പർ, വില്ലേജ്, വിസ്തീർണ്ണം.</span></p>
   <p><b>📄 FMB sketch</b> – on a survey number's window: load a photo, scan or PDF of its FMB sketch, drag a box around the drawing, and it is laid over the yellow outline. Then <b>Match corners</b>: tap a corner on the sketch, then the same corner on the yellow outline – 2 to 4 corners give a close fit, showing the sub-divisions on the ground. Kept only on this phone.</p>
+  <p><b>📐 Align survey lines</b> (🗺️ Layers) – Bhuvan's lines are often shifted from the real ground. Tap a corner of the orange lines, then the same corner on the satellite picture; 2–3 corners spread around correct the whole village. The correction is used for every survey number you look up there. Share it so other investigators get it too.</p>
   <p><b>⭐ Save plot</b> – keep your cluster's plots on this phone, with a note. They stay on the map in green.</p>
   <p><b>📏 Measure</b> – tap points to measure a distance; three or more points also give the area (cents).</p>
   <p><b>⭕ Circle</b> – 0.5 to 5 km around you. <b>📂 Load</b> – show a ward boundary (KML/GeoJSON).</p>
@@ -185,6 +204,12 @@
 <div id="measureBar"><span id="mText">Tap points on the map</span>
   <button class="btn light" id="mUndo">Undo</button><button class="btn" id="mDone">Done</button></div>
 <div id="toast"></div>
+<div id="corrNote"></div>
+<div id="alBar">
+  <div class="hd"><span id="alTitle" style="flex:1">Align survey lines</span><button class="btn light" id="alClose" title="Close without saving">✕</button></div>
+  <div id="alHint"></div>
+  <div class="row"><button class="btn light" id="alUndo">Undo corner</button><button class="btn light" id="alReset">Reset</button><button class="btn" id="alSave">✔ Save</button></div>
+</div>
 <input type="file" id="skFile" accept="image/*,.pdf,application/pdf" hidden>
 <input type="file" id="skRestoreFile" accept=".json,application/json" hidden>
 
@@ -317,6 +342,7 @@ function placeHtml(r, ll, title) {
     <b>Position</b><span>${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}</span>
     ${me && title !== "You are here" ? `<b>From you</b><span>${distText(map.distance(me.getLatLng(), ll))}</span>` : ""}
   </div>`;
+  if (r.corrected) h += `<div class="muted" style="margin-top:6px">📐 Survey lines corrected for this village (${esc(r.corrected)}).</div>`;
   if (sy) h += `<div class="muted" style="margin-top:6px">Area of the whole survey number (all sub-divisions), from the Bhuvan outline – a guide only.</div>`;
   h += `<div class="row">
     ${sy ? `<button class="btn" data-act="save">⭐ Save plot</button>` : ""}
@@ -360,6 +386,7 @@ $("sheetBody").addEventListener("click", (e) => {
 let measuring = false;
 map.on("click", (e) => {
   if (measuring) return addMeasurePoint(e.latlng);
+  if (typeof al !== "undefined" && $("alBar").classList.contains("show")) return onAlignTap(e);
   if (typeof sk !== "undefined" && sk.rec) return onSketchTap(e);
   if (radiusPick) { radiusPick = false; drawRadius(e.latlng); return; }
   if (tapMarker) tapMarker.setLatLng(e.latlng); else tapMarker = L.circleMarker(e.latlng, { radius: 6, color: "#fff", weight: 2, fillColor: "#C62828", fillOpacity: 1 }).addTo(map);
@@ -580,5 +607,6 @@ startWatch(true);
 if (!store.get("seenHelp", false)) { $("pHelp").classList.add("show"); store.set("seenHelp", true); }
 </script>
 <script src="fmb.js?v=5"></script>
+<script src="align.js?v=1"></script>
 </body>
 </html>
