@@ -149,9 +149,10 @@ async function onAlignTap(e) {
       $("alTitle").textContent = "Align survey lines · " + vp.vname;
     }
     al.pending = cGeo(al.rec).toM(best);
+    al.pendingSy = c.properties.par_num;
   } else {
     // 2. the same corner on the satellite picture
-    al.rec.pairs.push({ s: al.pending, d: cGeo(al.rec).toM(e.latlng) });
+    al.rec.pairs.push({ s: al.pending, d: cGeo(al.rec).toM(e.latlng), sy: al.pendingSy });
     al.pending = null;
     try { corrFit(al.rec); } catch (err) { al.rec.pairs.pop(); corrFit(al.rec); toast("Those corners are in a line – choose corners spread around", 4000); }
   }
@@ -190,11 +191,14 @@ function listCorr() {
   const ks = Object.keys(all).sort();
   box.innerHTML = ks.length ? ks.map((k) => {
     const r = all[k], mine = !!corr.local[k];
-    return `<div class="plot"><div class="t"><b>${esc(r.vname)}</b> · ${esc(r.dtname || "")}<br><span class="muted">${mine ? "Yours" : "EntryFlow"} · ${r.pairs.length} corners · moved ${shiftText(r)}</span></div>
+    return `<div class="plot"><div class="t" data-cshow="${esc(k)}" style="cursor:pointer"><b>${esc(r.vname)}</b> · ${esc(r.dtname || "")}<br><span class="muted">${mine ? "Yours" : "EntryFlow"} · ${r.pairs.length} corners · moved ${shiftText(r)}</span></div>
+      <br><span class="muted" style="color:#558B2F">Tap to show its corners on the map</span></div>
       ${mine ? `<button class="btn red" data-cdel="${esc(k)}">✕</button>` : ""}</div>`;
   }).join("") : '<div class="muted">No corrections yet.</div>';
 }
 $("corrList").addEventListener("click", (e) => {
+  const sh = e.target.closest("[data-cshow]");
+  if (sh) { showCorners(Object.assign({}, corr.shared, corr.local)[sh.dataset.cshow]); return; }
   const d = e.target.closest("[data-cdel]"); if (!d) return;
   const r = corr.local[d.dataset.cdel];
   if (!confirm("Remove your correction for " + r.vname + "?")) return;
@@ -223,5 +227,37 @@ $("corrFile").onchange = async (e) => {
     store.set("corr", corr.local); listCorr(); checkActive(); toast("Added " + n + " village correction" + (n === 1 ? "" : "s"));
   } catch (err) { toast("This is not an EntryFlow corrections file", 4000); }
 };
+
+// ------------------------------------------------------------------ show the corners of a saved correction
+const cornerMarks = L.layerGroup().addTo(map);
+async function surveyNosAt(rec, p) {                 // survey numbers meeting at a corner (Bhuvan position, nudged 1.5 m each way)
+  const g = cGeo(rec), out = new Set();
+  await Promise.all([[1.5, 1.5], [-1.5, 1.5], [1.5, -1.5], [-1.5, -1.5]].map(async ([dx, dy]) => {
+    try { const f = await info("v3:cadastral", g.toLL([p.s[0] + dx, p.s[1] + dy])); if (f) out.add(f.properties.par_num); } catch (e) { }
+  }));
+  return [...out].sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+}
+async function showCorners(rec) {
+  if (!rec) return;
+  closePanels(); hideSheet(); cornerMarks.clearLayers();
+  const g = cGeo(rec), pts = rec.pairs.map((p) => g.toLL(p.d));
+  if (!pts.length) return;
+  map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 18 });
+  toast("Corners of the correction for " + rec.vname + " – looking up survey numbers…", 3000);
+  const lines = [];
+  for (let i = 0; i < rec.pairs.length; i++) {
+    const p = rec.pairs[i], nos = await surveyNosAt(rec, p);
+    lines.push("Corner " + (i + 1) + (p.sy ? " – matched on Survey No. " + p.sy : "") + (nos.length ? " – survey numbers at this corner: " + nos.join(", ") : ""));
+    L.circleMarker(pts[i], { radius: 8, color: "#fff", weight: 2, fillColor: "#2E7D32", fillOpacity: 1, pane: "hl" })
+      .bindTooltip("<b>" + (i + 1) + "</b> · " + esc(p.sy || nos.join(" / ") || "?"), { permanent: true, direction: "right", className: "vlabel" })
+      .addTo(cornerMarks);
+  }
+  showSheet(`<div class="muted">📐 Correction for ${esc(rec.vname)} · ${corr.local[rec.key] ? "yours" : "EntryFlow"}</div>
+    <div class="sy" style="font-size:19px">${rec.pairs.length} corner${rec.pairs.length === 1 ? "" : "s"} matched<span>lines moved ${shiftText(rec)}</span></div>
+    <div style="margin-top:8px;font-size:13.5px">${lines.map(esc).join("<br>")}</div>
+    <div class="muted" style="margin-top:8px">The green dots show where each corner was placed on the satellite picture.</div>`);
+}
+map.on("click", () => { if (!$("alBar").classList.contains("show")) cornerMarks.clearLayers(); });
+$("sheetX").addEventListener("click", () => cornerMarks.clearLayers());
 
 listCorr(); checkActive();
