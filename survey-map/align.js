@@ -79,16 +79,14 @@ lookup = async function (ll) {
 function applyPanes() {
   const rec = al.rec || corr.active, panes = [map.getPane("survey"), map.getPane("village")];
   if (!rec || !corr.use && !al.rec) { panes.forEach((p) => p.style.transform = ""); $("corrNote").style.display = "none"; return; }
-  const c = map.getCenter(), sz = map.getSize();
-  const pts = [[0, 0], [sz.x, 0], [0, sz.y]].map((p) => map.containerPointToLatLng(p));
-  const s = pts.map((ll) => map.latLngToLayerPoint(ll)), d = pts.map((ll) => map.latLngToLayerPoint(toTrue(rec, ll)));
+  const c = map.latLngToLayerPoint(map.getCenter());  // three points around the view (works whatever the window size)
+  const s = [c, c.add([300, 0]), c.add([0, 300])], d = s.map((p) => map.latLngToLayerPoint(toTrue(rec, map.layerPointToLatLng(p))));
   // affine from 3 points: x' = a x + c y + e, y' = b x + d y + f
   const A = [[s[0].x, s[0].y, 1], [s[1].x, s[1].y, 1], [s[2].x, s[2].y, 1]];
   const X = solve(A, d.map((p) => p.x)), Y = solve(A, d.map((p) => p.y));
   panes.forEach((p) => { p.style.transformOrigin = "0 0"; p.style.transform = `matrix(${X[0]},${Y[0]},${X[1]},${Y[1]},${X[2]},${Y[2]})`; });
   $("corrNote").style.display = al.rec ? "none" : "block";
   $("corrNote").innerHTML = "📐 Survey lines corrected for <b>" + esc(rec.vname) + "</b>";
-  void c;
 }
 map.on("zoomend viewreset resize", applyPanes);
 let activeTimer = null;
