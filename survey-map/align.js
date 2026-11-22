@@ -33,13 +33,27 @@ function simFit(src, dst) {                          // 2 pairs: move + turn + s
   const ar = (ddx * dsx + ddy * dsy) / q, ai = (ddy * dsx - ddx * dsy) / q;
   return [ar, -ai, dst[0][0] - (ar * src[0][0] - ai * src[0][1]), ai, ar, dst[0][1] - (ai * src[0][0] + ar * src[0][1]), 0, 0, 1];
 }
+const NO_MANUAL = { rot: 0, scale: 1, dx: 0, dy: 0, p: [0, 0] };
+function manualOn(rec) { const m = rec.manual || NO_MANUAL; return m.rot !== 0 || m.scale !== 1 || m.dx !== 0 || m.dy !== 0; }
+function turnSize(m, pivot) {                        // turn (degrees, + = clockwise) and size around a point
+  return M3.mul(M3.T(pivot[0], pivot[1]), M3.mul(M3.R(-m.rot * Math.PI / 180), M3.mul(M3.S(m.scale), M3.T(-pivot[0], -pivot[1]))));
+}
 function corrFit(rec) {
-  const s = rec.pairs.map((p) => p.s), d = rec.pairs.map((p) => p.d), n = s.length;
-  if (!n) rec.H = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-  else if (n === 1) rec.H = M3.T(d[0][0] - s[0][0], d[0][1] - s[0][1]);
-  else if (n === 2) rec.H = simFit(s, d);
-  else rec.H = fitAffine(s, d);                     // 3 or more: also corrects stretching
+  // Corners decide the position (and from 2 corners the angle and size). The Turn / Size / Move controls
+  // are applied on top: with 0-1 corners they set the angle themselves, with 2+ corners they fine-tune it.
+  const s = rec.pairs.map((p) => p.s), d = rec.pairs.map((p) => p.d), n = s.length, m = rec.manual || NO_MANUAL;
+  const move = M3.T(m.dx, m.dy);
+  if (!n) rec.H = M3.mul(move, turnSize(m, m.p));
+  else if (n === 1) rec.H = M3.mul(move, M3.mul(M3.T(d[0][0] - s[0][0], d[0][1] - s[0][1]), turnSize(m, s[0])));
+  else {
+    const F = n === 2 ? simFit(s, d) : fitAffine(s, d);   // 3 or more: also corrects stretching
+    const c = [d.reduce((a, q) => a + q[0], 0) / n, d.reduce((a, q) => a + q[1], 0) / n];
+    rec.H = M3.mul(move, M3.mul(turnSize(m, c), F));
+  }
   return rec.H;
+}
+function angleText(rec) {                            // the turn of the whole correction (+ = clockwise)
+  const a = -Math.atan2(rec.H[3], rec.H[0]) * 180 / Math.PI; return (a >= 0 ? "+" : "") + a.toFixed(1) + "\u00b0";
 }
 const toTrue = (rec, ll) => { const g = cGeo(rec); return g.toLL(M3.app(rec.H, g.toM(ll))); };
 const toBhuvan = (rec, ll) => { const g = cGeo(rec); return g.toLL(M3.app(M3.inv(rec.H), g.toM(ll))); };
@@ -111,11 +125,34 @@ function startAlign() {
   al.marks.clearLayers().addTo(map);
   $("alTitle").textContent = "Align survey lines";
   $("alBar").classList.add("show");
-  alStatus();
+  alStatus(); manualUi();
+  // the village in the middle of the screen, so Turn / Size / Move work before any corner is matched
+  info("v3:village", map.getCenter()).then((v) => {
+    if (v && !al.rec && $("alBar").classList.contains("show")) { newAlRec(v.properties, map.getCenter()); manualUi(); alStatus(); applyPanes(); }
+  }).catch(() => { });
 }
+function newAlRec(vp, ll) {
+  const existing = corr.local[vKey(vp)] || corr.shared[vKey(vp)];
+  al.backup = existing ? JSON.parse(JSON.stringify(existing)) : null;
+  al.rec = existing ? JSON.parse(JSON.stringify(existing)) :
+    { key: vKey(vp), vname: vp.vname, dtname: vp.dtname, origin: { lat: ll.lat, lng: ll.lng }, pairs: [], H: [1, 0, 0, 0, 1, 0, 0, 0, 1] };
+  delete al.rec.by;
+  if (!al.rec.manual) al.rec.manual = Object.assign({}, NO_MANUAL, { p: cGeo(al.rec).toM(ll) });
+  corrFit(al.rec);
+  $("alTitle").textContent = "Align survey lines \u00b7 " + vp.vname;
+}
+function manualUi() {
+  const m = (al.rec && al.rec.manual) || NO_MANUAL, on = !!al.rec;
+  ["alRot", "alSize"].forEach((id) => $(id).disabled = !on);
+  document.querySelectorAll("#alBar [data-mv], #alBar [data-rs]").forEach((b) => b.disabled = !on);
+  $("alRot").value = m.rot; $("alRotV").textContent = (m.rot > 0 ? "+" : "") + (+m.rot).toFixed(1) + "\u00b0";
+  $("alSize").value = (m.scale * 100).toFixed(1); $("alSizeV").textContent = (m.scale * 100).toFixed(1) + "%";
+  $("alMoveV").textContent = on && (m.dx || m.dy) ? Math.round(Math.hypot(m.dx, m.dy)) + " m" : "";
+}
+function manualChanged() { corrFit(al.rec); drawAlMarks(); applyPanes(); manualUi(); alStatus(); }
 function alStatus() {
   const n = al.rec ? al.rec.pairs.length : 0;
-  $("alUndo").disabled = !n; $("alSave").disabled = !n;
+  $("alUndo").disabled = !n; $("alSave").disabled = !(n || (al.rec && manualOn(al.rec)));
   $("alHint").innerHTML = al.pending ? "<b>2.</b> Now tap the <b>same corner on the satellite picture</b> – where it really is (a field bund, wall, pond bank, road edge)."
     : n === 0 ? "<b>1.</b> Zoom in and tap a clear <b>corner of the orange survey lines</b> – one you can also see on the satellite picture."
     : (n === 1 ? "1 corner matched – the lines moved. " : n === 2 ? "2 corners matched – moved, turned and sized. " : n + " corners matched – also corrects stretching. ") +
@@ -140,14 +177,7 @@ async function onAlignTap(e) {
       if (d < bd) { bd = d; best = b; }
     })));
     if (!best) { toast("Tap closer to a corner of the orange lines (zoom in more)", 3500); return; }
-    if (!al.rec) {
-      const existing = corr.local[vKey(vp)] || corr.shared[vKey(vp)];
-      al.backup = existing ? JSON.parse(JSON.stringify(existing)) : null;
-      al.rec = existing ? JSON.parse(JSON.stringify(existing)) :
-        { key: vKey(vp), vname: vp.vname, dtname: vp.dtname, origin: { lat: best.lat, lng: best.lng }, pairs: [], H: [1, 0, 0, 0, 1, 0, 0, 0, 1] };
-      delete al.rec.by;
-      $("alTitle").textContent = "Align survey lines · " + vp.vname;
-    }
+    if (!al.rec) { newAlRec(vp, best); manualUi(); }
     al.pending = cGeo(al.rec).toM(best);
     al.pendingSy = c.properties.par_num;
   } else {
@@ -173,7 +203,20 @@ function closeAlign() {
   al.rec = null; al.pending = null; checkActive();
 }
 $("alUndo").onclick = () => { if (!al.rec) return; al.rec.pairs.pop(); al.pending = null; corrFit(al.rec); drawAlMarks(); applyPanes(); alStatus(); };
-$("alReset").onclick = () => { if (!al.rec) return; al.rec.pairs = []; al.pending = null; corrFit(al.rec); drawAlMarks(); applyPanes(); alStatus(); };
+$("alReset").onclick = () => {
+  if (!al.rec) return; al.rec.pairs = []; al.pending = null;
+  al.rec.manual = Object.assign({}, NO_MANUAL, { p: cGeo(al.rec).toM(map.getCenter()) });
+  manualChanged();
+};
+$("alRot").oninput = (e) => { if (!al.rec) return; al.rec.manual.rot = +e.target.value; manualChanged(); };
+$("alSize").oninput = (e) => { if (!al.rec) return; al.rec.manual.scale = +e.target.value / 100; manualChanged(); };
+document.querySelectorAll("#alBar [data-mv]").forEach((b) => b.onclick = () => {
+  if (!al.rec) return; const [x, y] = b.dataset.mv.split(",").map(Number);
+  al.rec.manual.dx += x; al.rec.manual.dy += y; manualChanged();
+});
+document.querySelectorAll("#alBar [data-rs]").forEach((b) => b.onclick = () => {   // fine turn, 0.1 degree a tap
+  if (!al.rec) return; al.rec.manual.rot = Math.max(-15, Math.min(15, +(al.rec.manual.rot + +b.dataset.rs).toFixed(1))); manualChanged();
+});
 $("alClose").onclick = () => closeAlign();
 $("alSave").onclick = () => {
   const r = al.rec; r.t = Date.now();
@@ -191,7 +234,7 @@ function listCorr() {
   const ks = Object.keys(all).sort();
   box.innerHTML = ks.length ? ks.map((k) => {
     const r = all[k], mine = !!corr.local[k];
-    return `<div class="plot"><div class="t" data-cshow="${esc(k)}" style="cursor:pointer"><b>${esc(r.vname)}</b> · ${esc(r.dtname || "")}<br><span class="muted">${mine ? "Yours" : "EntryFlow"} · ${r.pairs.length} corners · moved ${shiftText(r)}</span></div>
+    return `<div class="plot"><div class="t" data-cshow="${esc(k)}" style="cursor:pointer"><b>${esc(r.vname)}</b> · ${esc(r.dtname || "")}<br><span class="muted">${mine ? "Yours" : "EntryFlow"} · ${r.pairs.length} corners · moved ${shiftText(r)} · turned ${angleText(r)}</span></div>
       <br><span class="muted" style="color:#558B2F">Tap to show its corners on the map</span></div>
       ${mine ? `<button class="btn red" data-cdel="${esc(k)}">✕</button>` : ""}</div>`;
   }).join("") : '<div class="muted">No corrections yet.</div>';
