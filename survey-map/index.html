@@ -70,6 +70,20 @@
   #measureBar { position:absolute; left:50%; transform:translateX(-50%); top:60px; z-index:1001; background:#fff; border-radius:20px;
     box-shadow:0 2px 10px rgba(0,0,0,.25); padding:6px 8px 6px 14px; display:none; align-items:center; gap:8px; font-size:13.5px; white-space:nowrap; }
   #measureBar.show { display:flex; }
+  .sf { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .sf span { width:72px; font-size:13px; color:var(--muted); flex:none; }
+  .sf input, .sf select { flex:1; min-width:0; border:1px solid var(--line); border-radius:10px; padding:7px 10px; font:inherit; font-size:14px; background:#fff; color:var(--ink); }
+  .sf input:focus, .sf select:focus { outline:2px solid var(--green); border-color:transparent; }
+  #srBar { position:absolute; left:10px; right:66px; top:62px; z-index:1001; background:#fff; border-radius:14px; box-shadow:0 2px 10px rgba(0,0,0,.25);
+    padding:7px 10px; display:none; font-size:13.5px; }
+  #srBar.show { display:block; }
+  body.searching #here { display:none !important; }
+  #srBar .r { display:flex; align-items:center; gap:8px; }
+  #srBar .pg { height:4px; background:var(--line); border-radius:2px; margin-top:6px; overflow:hidden; }
+  #srProg { height:100%; width:0; background:var(--green); transition:width .3s; }
+  #srPieces { margin-top:4px; }
+  #srPieces:empty { display:none; }
+  @media (min-width: 700px) { #srBar { right:auto; width:420px; } }
   #here { position:absolute; top:62px; left:10px; right:66px; z-index:1000; background:rgba(255,255,255,.95); border-radius:18px;
     box-shadow:0 2px 8px rgba(0,0,0,.22); padding:7px 12px; font-size:13.5px; display:none; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #here.show { display:block; }
@@ -131,6 +145,7 @@
 </div>
 
 <div class="fab" id="toolsTop">
+  <button id="bSearch" title="Find a survey number">🔎</button>
   <button id="bLayers" title="Map layers">🗺️</button>
   <button id="bPlots" title="My saved plots">⭐</button>
   <button id="bMeasure" title="Measure distance / area">📏</button>
@@ -146,6 +161,16 @@
 
 <div id="here"><span id="hereText"></span></div>
 <div class="sheet" id="sheet"><button class="x" id="sheetX">×</button><div id="sheetBody"></div></div>
+
+<div class="panel" id="pSearch">
+  <h3>Find a survey number / സർവ്വേ നമ്പർ തിരയുക</h3>
+  <div class="sf"><span>Survey No.</span><input id="srNo" inputmode="numeric" placeholder="e.g. 191" autocomplete="off"></div>
+  <div class="sf"><span>Village</span><input id="srVillage" placeholder="Village name (empty = village on the map)" autocomplete="off"></div>
+  <div class="sf"><span>District</span><select id="srDist"></select></div>
+  <div class="row"><button class="btn" id="srGo">🔎 Search</button><button class="btn light" id="srHere">Use the village on the map</button></div>
+  <div id="srMsg" class="muted" style="margin-top:8px"></div>
+  <div class="muted" style="margin-top:8px">Bhuvan cannot search by number, so the whole village is checked area by area – usually 10–20 seconds. The plot shows as soon as it is found.</div>
+</div>
 
 <div class="panel" id="pLayers">
   <h3>Map / മാപ്പ്</h3>
@@ -199,6 +224,8 @@
   <div style="font-size:13.5px">
   <p><b>◎ My location</b> – shows where you are and the survey number you are standing in. The strip at the top keeps showing your survey number as you walk.<br>
   <span class="muted">എന്റെ സ്ഥാനം: നിങ്ങൾ നിൽക്കുന്ന സർവ്വേ നമ്പർ കാണിക്കും.</span></p>
+  <p><b>🔎 Find a survey number</b> – type the number and the village (or leave the village empty to use the one on the map). The whole village is checked; every piece with that number is shown in orange.<br>
+  <span class="muted">സർവ്വേ നമ്പറും വില്ലേജും നൽകി തിരയുക.</span></p>
   <p><b>Tap the map</b> – survey number, village, block, district and the approximate area of the whole survey number, outlined in yellow.<br>
   <span class="muted">മാപ്പിൽ തൊടുക: സർവ്വേ നമ്പർ, വില്ലേജ്, വിസ്തീർണ്ണം.</span></p>
   <p><b>📄 FMB sketch</b> – on a survey number's window: load a photo, scan or PDF of its FMB sketch, drag a box around the drawing, and it is laid over the yellow outline. Then <b>Match corners</b>: tap a corner on the sketch, then the same corner on the yellow outline – 2 to 4 corners give a close fit, showing the sub-divisions on the ground. Kept on this phone; ⭐ → ☁ Save to my Drive keeps a copy in your own Google Drive, to open on another phone or computer.</p>
@@ -211,6 +238,8 @@
   </div>
 </div>
 
+<div id="srBar"><div class="r"><span id="srBarText" style="flex:1;min-width:0"></span><button class="btn light" id="srStop">Stop</button></div>
+  <div class="pg"><div id="srProg"></div></div><div class="chips" id="srPieces"></div></div>
 <div id="measureBar"><span id="mText">Tap points on the map</span>
   <button class="btn light" id="mUndo">Undo</button><button class="btn" id="mDone">Done</button></div>
 <div id="toast"></div>
@@ -611,10 +640,10 @@ async function search() {
 map.on("click", () => { $("results").style.display = "none"; });
 
 // ------------------------------------------------------------------ panels
-const panels = { bLayers: "pLayers", bPlots: "pPlots", bRadius: "pRadius", bUpload: "pUpload", bHelp: "pHelp" };
+const panels = { bSearch: "pSearch", bLayers: "pLayers", bPlots: "pPlots", bRadius: "pRadius", bUpload: "pUpload", bHelp: "pHelp" };
 function closePanels() { Object.values(panels).forEach((p) => $(p).classList.remove("show")); }
-Object.entries(panels).forEach(([b, p]) => $(b).onclick = () => { const open = $(p).classList.contains("show"); closePanels(); if (!open) $(p).classList.add("show"); if (measuring) stopMeasure(); });
-map.on("movestart", () => { if (!measuring) closePanels(); });
+Object.entries(panels).forEach(([b, p]) => $(b).onclick = () => { const open = $(p).classList.contains("show"); closePanels(); if (!open) $(p).classList.add("show"); if (measuring) stopMeasure(); if (!open && p === "pSearch") setTimeout(() => $("srNo").focus(), 50); });
+map.on("movestart", () => { if (!measuring && !$("pSearch").classList.contains("show")) closePanels(); });
 drawPlots();
 startWatch(true);
 if (!store.get("seenHelp", false)) { $("pHelp").classList.add("show"); store.set("seenHelp", true); }
@@ -622,5 +651,6 @@ if (!store.get("seenHelp", false)) { $("pHelp").classList.add("show"); store.set
 <script src="fmb.js?v=5"></script>
 <script src="align.js?v=5"></script>
 <script src="drive.js?v=1"></script>
+<script src="search.js?v=1"></script>
 </body>
 </html>
